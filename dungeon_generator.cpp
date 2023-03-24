@@ -22,6 +22,8 @@ DungeonGenerator::LocationSet DungeonGenerator::_generate_ground() {
 	noise.set_noise_type(FastNoiseLite::TYPE_SIMPLEX_SMOOTH);
 	noise.set_seed(noise_seed);
 
+	const unsigned int MAX_TILES = dungeon_width * dungeon_height;
+
 	LocationSet pangea = {};
 	LocationSetList island_borders = {};
 
@@ -88,7 +90,7 @@ int DungeonGenerator::_find_island(const Vector2i &location, const LocationSetLi
 }
 
 void DungeonGenerator::_connect_borders(const LocationSetList &borders, LocationSet &pangea) {
-	Matrix<float> closest_distances;
+	Matrix<unsigned int> closest_distances;
 	Matrix<Vector2i> closest_points;
 	_find_island_distances(borders, closest_distances, closest_points);
 
@@ -110,17 +112,13 @@ void DungeonGenerator::_connect_borders(const LocationSetList &borders, Location
 	}
 }
 
-void DungeonGenerator::_find_island_distances(const LocationSetList &borders, Matrix<float> &closest_distances, Matrix<Vector2i> &closest_points) {
-	closest_distances = Matrix<float>(borders.size(), std::vector<float>(borders.size(), INFINITY));
+void DungeonGenerator::_find_island_distances(const LocationSetList &borders, Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points) {
+	closest_distances = Matrix<unsigned int>(borders.size(), std::vector<unsigned int>(borders.size(), UINT32_MAX));
 	closest_points = Matrix<Vector2i>(borders.size(), std::vector<Vector2i>(borders.size(), Vector2i()));
 
 	for (int island_1_index = 0; island_1_index < borders.size(); island_1_index++) {
-		for (int island_2_index = 0; island_2_index < borders.size(); island_2_index++) {
-			if (island_1_index == island_2_index) {
-				continue;
-			}
-
-			float distance = _find_closest_locations(
+		for (int island_2_index = island_1_index + 1; island_2_index < borders.size(); island_2_index++) {
+			unsigned int distance = _find_closest_locations(
 					borders[island_1_index],
 					borders[island_2_index],
 					closest_points[island_2_index][island_1_index],
@@ -132,11 +130,11 @@ void DungeonGenerator::_find_island_distances(const LocationSetList &borders, Ma
 	}
 }
 
-float DungeonGenerator::_find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2) {
-	float closest_distance = INFINITY;
+unsigned int DungeonGenerator::_find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2) {
+	unsigned int closest_distance = UINT32_MAX;
 	for (const Vector2i &island_1_location : island1) {
 		for (const Vector2i &island_2_location : island2) {
-			float distance = Vector2(island_1_location).distance_to(island_2_location);
+			unsigned int distance = abs(island_1_location.x - island_2_location.x) + abs(island_1_location.y - island_2_location.y);
 			if (distance < closest_distance) {
 				location1 = island_1_location;
 				location2 = island_2_location;
@@ -148,7 +146,7 @@ float DungeonGenerator::_find_closest_locations(const LocationSet &island1, cons
 }
 
 void DungeonGenerator::_find_closest_island_locations(
-		const Matrix<float> &closest_distances,
+		const Matrix<unsigned int> &closest_distances,
 		const Matrix<Vector2i> &closest_points,
 		Vector2i &location1,
 		Vector2i &location2,
@@ -156,7 +154,7 @@ void DungeonGenerator::_find_closest_island_locations(
 	location1 = closest_points[0][1];
 	location2 = closest_points[1][0];
 	closest_island_index = 1;
-	float closest_distance = closest_distances[0][1];
+	unsigned int closest_distance = closest_distances[0][1];
 	for (int island_index = 2; island_index < closest_distances.size(); island_index++) {
 		if (closest_distances[0][island_index] < closest_distance) {
 			location1 = closest_points[island_index][0];
@@ -182,14 +180,14 @@ void DungeonGenerator::_connect_locations(const Vector2i &location1, const Vecto
 	}
 }
 
-void DungeonGenerator::_merge_island_distances(Matrix<float> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index) {
+void DungeonGenerator::_merge_island_distances(Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index) {
 	size_t island_count = closest_distances.size();
 	for (int island_index = 1; island_index < island_count; island_index++) {
 		if (island_index == closest_island_index) {
 			continue;
 		}
 
-		float closest_to_current_distance = closest_distances[closest_island_index][island_index];
+		unsigned int closest_to_current_distance = closest_distances[closest_island_index][island_index];
 		if (closest_to_current_distance < closest_distances[0][island_index]) {
 			closest_points[0][island_index] = closest_points[closest_island_index][island_index];
 			closest_points[island_index][0] = closest_points[island_index][closest_island_index];

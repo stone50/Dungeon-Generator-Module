@@ -8,7 +8,7 @@
 class DungeonGenerator : public Node {
 	struct Vector2iHash {
 		inline std::size_t operator()(const Vector2i &v) const {
-			return v.x * 31 + v.y;
+			return ((size_t)v.x << sizeof(uint8_t)) + v.y;
 		}
 	};
 
@@ -39,12 +39,12 @@ class DungeonGenerator : public Node {
 
 	void _connect_borders(const LocationSetList &borders, LocationSet &pangea);
 
-	void _find_island_distances(const LocationSetList &borders, Matrix<float> &closest_distances, Matrix<Vector2i> &closest_points);
+	void _find_island_distances(const LocationSetList &borders, Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points);
 
-	float _find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2);
+	unsigned int _find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2);
 
 	void _find_closest_island_locations(
-			const Matrix<float> &closest_distances,
+			const Matrix<unsigned int> &closest_distances,
 			const Matrix<Vector2i> &closest_points,
 			Vector2i &location1,
 			Vector2i &location2,
@@ -52,7 +52,7 @@ class DungeonGenerator : public Node {
 
 	void _connect_locations(const Vector2i &location1, const Vector2i &location2, LocationSet &pangea);
 
-	void _merge_island_distances(Matrix<float> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index);
+	void _merge_island_distances(Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index);
 
 	void _spawn_ground(const LocationSet &pangea);
 
