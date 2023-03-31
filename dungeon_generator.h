@@ -28,16 +28,11 @@ class DungeonGenerator : public Node {
 	int noise_seed;
 	float noise_scale;
 
-	static Vector2i UP;
-	static Vector2i DOWN;
-	static Vector2i RIGHT;
-	static Vector2i LEFT;
-
-	LocationSet _generate_ground();
+	Matrix<bool> _generate_ground();
 
 	int _find_island(const Vector2i &location, const LocationSetList &islands);
 
-	void _connect_borders(const LocationSetList &borders, LocationSet &pangea);
+	void _connect_borders(const LocationSetList &borders, Matrix<bool> &pangea);
 
 	void _find_island_distances(const LocationSetList &borders, Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points);
 
@@ -50,11 +45,11 @@ class DungeonGenerator : public Node {
 			Vector2i &location2,
 			int &closest_island_index);
 
-	void _connect_locations(const Vector2i &location1, const Vector2i &location2, LocationSet &pangea);
+	void _connect_locations(const Vector2i &location1, const Vector2i &location2, Matrix<bool> &pangea);
 
 	void _merge_island_distances(Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index);
 
-	void _spawn_ground(const LocationSet &pangea);
+	void _spawn_ground(const Matrix<bool> &pangea);
 
 protected:
 	static void _bind_methods();

@@ -6,51 +6,43 @@
 
 //#include "../../core/string/print_string.h"
 
-Vector2i DungeonGenerator::UP = Vector2i(0, -1);
-Vector2i DungeonGenerator::DOWN = Vector2i(0, 1);
-Vector2i DungeonGenerator::RIGHT = Vector2i(1, 0);
-Vector2i DungeonGenerator::LEFT = Vector2i(-1, 0);
-
 void DungeonGenerator::generate() {
-	LocationSet pangea = _generate_ground();
+	Matrix<bool> pangea = _generate_ground();
 
 	_spawn_ground(pangea);
 }
 
-DungeonGenerator::LocationSet DungeonGenerator::_generate_ground() {
+DungeonGenerator::Matrix<bool> DungeonGenerator::_generate_ground() {
 	FastNoiseLite noise = FastNoiseLite();
 	noise.set_noise_type(FastNoiseLite::TYPE_SIMPLEX_SMOOTH);
 	noise.set_seed(noise_seed);
 
-	const unsigned int MAX_TILES = dungeon_width * dungeon_height;
-
-	LocationSet pangea = {};
+	Matrix<bool> pangea = Matrix<bool>(dungeon_width, std::vector<bool>(dungeon_height, false));
 	LocationSetList island_borders = {};
 
 	for (int x = 0; x < dungeon_width; x++) {
 		for (int y = 0; y < dungeon_height; y++) {
-			Vector2i tile_location = Vector2i(x, y);
+			Vector2i tile_location(x, y);
 
 			if (noise.get_noise_2dv(tile_location * noise_scale) < 0) {
 				continue;
 			}
 
-			pangea.insert(tile_location);
+			pangea[x][y] = true;
 
-			Vector2i left_location = tile_location + LEFT;
-			if (pangea.count(left_location)) {
+			if (x > 0 && pangea[x - 1][y]) {
+				Vector2i left_location(x - 1, y);
 				int left_location_index = _find_island(left_location, island_borders);
 
 				LocationSet &left_location_borders = island_borders[left_location_index];
 				left_location_borders.insert(tile_location);
 
-				if (pangea.count(left_location + UP) && pangea.count(left_location + DOWN) && pangea.count(left_location + LEFT)) {
+				if (y > 0 && y < dungeon_height - 1 && x > 1 && pangea[left_location.x][y - 1] && pangea[left_location.x][y + 1] && pangea[x - 2][y]) {
 					left_location_borders.erase(left_location);
 				}
 
-				Vector2i up_location = tile_location + UP;
-				if (pangea.count(up_location)) {
-					int up_location_index = _find_island(up_location, island_borders);
+				if (y > 0 && pangea[x][y - 1]) {
+					int up_location_index = _find_island(Vector2i(x, y - 1), island_borders);
 
 					if (left_location_index != up_location_index) {
 						LocationSet &up_location_borders = island_borders[up_location_index];
@@ -65,9 +57,8 @@ DungeonGenerator::LocationSet DungeonGenerator::_generate_ground() {
 					}
 				}
 			} else {
-				Vector2i up_location = tile_location + UP;
-				if (pangea.count(up_location)) {
-					island_borders[_find_island(up_location, island_borders)].insert(tile_location);
+				if (y > 0 && pangea[x][y - 1]) {
+					island_borders[_find_island(Vector2i(x, y - 1), island_borders)].insert(tile_location);
 				} else {
 					island_borders.push_back({ tile_location });
 				}
@@ -89,7 +80,7 @@ int DungeonGenerator::_find_island(const Vector2i &location, const LocationSetLi
 	return -1;
 }
 
-void DungeonGenerator::_connect_borders(const LocationSetList &borders, LocationSet &pangea) {
+void DungeonGenerator::_connect_borders(const LocationSetList &borders, Matrix<bool> &pangea) {
 	Matrix<unsigned int> closest_distances;
 	Matrix<Vector2i> closest_points;
 	_find_island_distances(borders, closest_distances, closest_points);
@@ -133,7 +124,7 @@ void DungeonGenerator::_find_island_distances(const LocationSetList &borders, Ma
 unsigned int DungeonGenerator::_find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2) {
 	unsigned int closest_distance = UINT32_MAX;
 	for (const Vector2i &island_1_location : island1) {
-		for (const Vector2i &island_2_location : island2) {
+		for (const Vector2i &island_2_location : island2_list) {
 			unsigned int distance = abs(island_1_location.x - island_2_location.x) + abs(island_1_location.y - island_2_location.y);
 			if (distance < closest_distance) {
 				location1 = island_1_location;
@@ -165,18 +156,18 @@ void DungeonGenerator::_find_closest_island_locations(
 	}
 }
 
-void DungeonGenerator::_connect_locations(const Vector2i &location1, const Vector2i &location2, LocationSet &pangea) {
+void DungeonGenerator::_connect_locations(const Vector2i &location1, const Vector2i &location2, Matrix<bool> &pangea) {
 	int min_x = location1.x < location2.x ? location1.x : location2.x;
 	int max_x = location1.x > location2.x ? location1.x : location2.x;
 	int min_y = location1.y < location2.y ? location1.y : location2.y;
 	int max_y = location1.y > location2.y ? location1.y : location2.y;
 
 	for (int x = min_x; x <= max_x; x++) {
-		pangea.insert(Vector2i(x, location1.y));
+		pangea[x][location1.y] = true;
 	}
 
 	for (int y = min_y; y <= max_y; y++) {
-		pangea.insert(Vector2i(location2.x, y));
+		pangea[location2.x][y] = true;
 	}
 }
 
@@ -208,17 +199,23 @@ void DungeonGenerator::_merge_island_distances(Matrix<unsigned int> &closest_dis
 	closest_points.erase(closest_points.begin() + closest_island_index);
 }
 
-void DungeonGenerator::_spawn_ground(const LocationSet &pangea) {
+void DungeonGenerator::_spawn_ground(const Matrix<bool> &pangea) {
 	Ref<PackedScene> tile_scene = ResourceLoader::load(tile_scene_path, "PackedScene");
 
 	Vector2 top_left = Vector2(dungeon_width, dungeon_height) * tile_size / -2;
 	Node *dungeon_node = dynamic_cast<Node *>(ClassDB::instantiate("Node"));
 	dungeon_node->set_name("Dungeon");
-	for (const Vector2i &tile_location : pangea) {
-		Sprite2D *tile = dynamic_cast<Sprite2D *>(tile_scene.ptr()->instantiate());
-		tile->set_name("Ground Tile (" + String::num(tile_location.x) + ", " + String::num(tile_location.y) + ")");
-		tile->set_position(top_left + Vector2(tile_location * tile_size));
-		dungeon_node->add_child(tile);
+	for (int x = 0; x < dungeon_width; x++) {
+		for (int y = 0; y < dungeon_height; y++) {
+			if (!pangea[x][y]) {
+				continue;
+			}
+
+			Sprite2D *tile = dynamic_cast<Sprite2D *>(tile_scene.ptr()->instantiate());
+			tile->set_name("Ground Tile (" + String::num(x) + ", " + String::num(y) + ")");
+			tile->set_position(Vector2(x, y) * tile_size + top_left);
+			dungeon_node->add_child(tile);
+		}
 	}
 	SceneTree::get_singleton()->get_current_scene()->call_deferred("add_child", dungeon_node);
 }
