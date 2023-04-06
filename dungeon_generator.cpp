@@ -17,51 +17,65 @@ DungeonGenerator::Matrix<bool> DungeonGenerator::_generate_ground() {
 	noise.set_noise_type(FastNoiseLite::TYPE_SIMPLEX_SMOOTH);
 	noise.set_seed(noise_seed);
 
-	Matrix<bool> pangea = Matrix<bool>(dungeon_width, std::vector<bool>(dungeon_height, false));
-	LocationSetList island_borders = {};
+	Matrix<bool> pangea = Matrix<bool>(dungeon_width, VList<bool>(dungeon_height, false));
+	Matrix<Pointer<char16_t>> island_matrix = Matrix<Pointer<char16_t>>(dungeon_width, VList<Pointer<char16_t>>(dungeon_height, nullptr));
+	Matrix<bool> border_matrix = Matrix<bool>(dungeon_width, VList<bool>(dungeon_height, false));
 
-	for (int x = 0; x < dungeon_width; x++) {
-		for (int y = 0; y < dungeon_height; y++) {
-			Vector2i tile_location(x, y);
+	char16_t island_id = 0;
+	for (uint8_t x = 0; x < dungeon_width; x++) {
+		for (uint8_t y = 0; y < dungeon_height; y++) {
+			bool up_tile = y > 0 && pangea[x][y - 1];
+			bool left_tile = x > 0 && pangea[x - 1][y];
+			bool self_tile = noise.get_noise_2dv(Vector2i(x, y) * noise_scale) > 0;
 
-			if (noise.get_noise_2dv(tile_location * noise_scale) < 0) {
+			if (self_tile) {
+				pangea[x][y] = true;
+
+				if (left_tile) {
+					island_matrix[x][y] = island_matrix[x - 1][y];
+
+					if (up_tile) {
+						if (*island_matrix[x][y - 1] != *island_matrix[x - 1][y]) {
+							*island_matrix[x][y - 1] = *island_matrix[x - 1][y];
+						}
+					} else {
+						border_matrix[x][y] = true;
+					}
+				} else if (up_tile) {
+					island_matrix[x][y] = island_matrix[x][y - 1];
+
+					border_matrix[x][y] = true;
+				} else {
+					island_matrix[x][y] = Pointer<char16_t>(new char16_t(island_id++));
+
+					border_matrix[x][y] = true;
+				}
+			} else {
+				if (left_tile) {
+					border_matrix[x - 1][y] = true;
+				}
+
+				if (up_tile) {
+					border_matrix[x][y - 1] = true;
+				}
+			}
+		}
+	}
+
+	Map<char16_t, char16_t> island_ids = {};
+	Matrix<Vector2i> island_borders = Matrix<Vector2i>();
+
+	for (uint8_t x = 0; x < dungeon_width; x++) {
+		for (uint8_t y = 0; y < dungeon_height; y++) {
+			if (!border_matrix[x][y]) {
 				continue;
 			}
 
-			pangea[x][y] = true;
-
-			if (x > 0 && pangea[x - 1][y]) {
-				Vector2i left_location(x - 1, y);
-				int left_location_index = _find_island(left_location, island_borders);
-
-				LocationSet &left_location_borders = island_borders[left_location_index];
-				left_location_borders.insert(tile_location);
-
-				if (y > 0 && y < dungeon_height - 1 && x > 1 && pangea[left_location.x][y - 1] && pangea[left_location.x][y + 1] && pangea[x - 2][y]) {
-					left_location_borders.erase(left_location);
-				}
-
-				if (y > 0 && pangea[x][y - 1]) {
-					int up_location_index = _find_island(Vector2i(x, y - 1), island_borders);
-
-					if (left_location_index != up_location_index) {
-						LocationSet &up_location_borders = island_borders[up_location_index];
-
-						if (left_location_borders.size() < up_location_borders.size()) {
-							up_location_borders.insert(left_location_borders.begin(), left_location_borders.end());
-							island_borders.erase(island_borders.begin() + left_location_index);
-						} else {
-							left_location_borders.insert(up_location_borders.begin(), up_location_borders.end());
-							island_borders.erase(island_borders.begin() + up_location_index);
-						}
-					}
-				}
+			if (island_ids.count(*island_matrix[x][y])) {
+				island_borders[island_ids.at(*island_matrix[x][y])].push_back(Vector2i(x, y));
 			} else {
-				if (y > 0 && pangea[x][y - 1]) {
-					island_borders[_find_island(Vector2i(x, y - 1), island_borders)].insert(tile_location);
-				} else {
-					island_borders.push_back({ tile_location });
-				}
+				island_ids.emplace(*island_matrix[x][y], island_ids.size());
+				island_borders.push_back(VList<Vector2i>{ Vector2i(x, y) });
 			}
 		}
 	}
@@ -71,25 +85,16 @@ DungeonGenerator::Matrix<bool> DungeonGenerator::_generate_ground() {
 	return pangea;
 }
 
-int DungeonGenerator::_find_island(const Vector2i &location, const LocationSetList &islands) {
-	for (int i = 0; i < islands.size(); i++) {
-		if (islands[i].count(location)) {
-			return i;
-		}
-	}
-	return -1;
-}
-
-void DungeonGenerator::_connect_borders(const LocationSetList &borders, Matrix<bool> &pangea) {
-	Matrix<unsigned int> closest_distances;
+void DungeonGenerator::_connect_borders(const Matrix<Vector2i> &borders, Matrix<bool> &pangea) {
+	Matrix<char16_t> closest_distances;
 	Matrix<Vector2i> closest_points;
 	_find_island_distances(borders, closest_distances, closest_points);
 
-	size_t island_count = borders.size() - 1;
-	for (int isl = 0; isl < island_count; isl++) {
+	char16_t island_count = borders.size() - 1;
+	for (char16_t isl = 0; isl < island_count; isl++) {
 		Vector2i location1;
 		Vector2i location2;
-		int closest_island_index;
+		char16_t closest_island_index;
 		_find_closest_island_locations(
 				closest_distances,
 				closest_points,
@@ -103,13 +108,13 @@ void DungeonGenerator::_connect_borders(const LocationSetList &borders, Matrix<b
 	}
 }
 
-void DungeonGenerator::_find_island_distances(const LocationSetList &borders, Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points) {
-	closest_distances = Matrix<unsigned int>(borders.size(), std::vector<unsigned int>(borders.size(), UINT32_MAX));
-	closest_points = Matrix<Vector2i>(borders.size(), std::vector<Vector2i>(borders.size(), Vector2i()));
+void DungeonGenerator::_find_island_distances(const Matrix<Vector2i> &borders, Matrix<char16_t> &closest_distances, Matrix<Vector2i> &closest_points) {
+	closest_distances = Matrix<char16_t>(borders.size(), VList<char16_t>(borders.size(), UINT_LEAST16_MAX));
+	closest_points = Matrix<Vector2i>(borders.size(), VList<Vector2i>(borders.size(), Vector2i()));
 
-	for (int island_1_index = 0; island_1_index < borders.size(); island_1_index++) {
-		for (int island_2_index = island_1_index + 1; island_2_index < borders.size(); island_2_index++) {
-			unsigned int distance = _find_closest_locations(
+	for (char16_t island_1_index = 0; island_1_index < borders.size(); island_1_index++) {
+		for (char16_t island_2_index = island_1_index + 1; island_2_index < borders.size(); island_2_index++) {
+			char16_t distance = _find_closest_locations(
 					borders[island_1_index],
 					borders[island_2_index],
 					closest_points[island_2_index][island_1_index],
@@ -121,11 +126,11 @@ void DungeonGenerator::_find_island_distances(const LocationSetList &borders, Ma
 	}
 }
 
-unsigned int DungeonGenerator::_find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2) {
-	unsigned int closest_distance = UINT32_MAX;
+char16_t DungeonGenerator::_find_closest_locations(const VList<Vector2i> &island1, const VList<Vector2i> &island2, Vector2i &location1, Vector2i &location2) {
+	char16_t closest_distance = UINT_LEAST16_MAX;
 	for (const Vector2i &island_1_location : island1) {
-		for (const Vector2i &island_2_location : island2_list) {
-			unsigned int distance = abs(island_1_location.x - island_2_location.x) + abs(island_1_location.y - island_2_location.y);
+		for (const Vector2i &island_2_location : island2) {
+			char16_t distance = abs(island_1_location.x - island_2_location.x) + abs(island_1_location.y - island_2_location.y);
 			if (distance < closest_distance) {
 				location1 = island_1_location;
 				location2 = island_2_location;
@@ -137,16 +142,16 @@ unsigned int DungeonGenerator::_find_closest_locations(const LocationSet &island
 }
 
 void DungeonGenerator::_find_closest_island_locations(
-		const Matrix<unsigned int> &closest_distances,
+		const Matrix<char16_t> &closest_distances,
 		const Matrix<Vector2i> &closest_points,
 		Vector2i &location1,
 		Vector2i &location2,
-		int &closest_island_index) {
+		char16_t &closest_island_index) {
 	location1 = closest_points[0][1];
 	location2 = closest_points[1][0];
 	closest_island_index = 1;
-	unsigned int closest_distance = closest_distances[0][1];
-	for (int island_index = 2; island_index < closest_distances.size(); island_index++) {
+	char16_t closest_distance = closest_distances[0][1];
+	for (char16_t island_index = 2; island_index < closest_distances.size(); island_index++) {
 		if (closest_distances[0][island_index] < closest_distance) {
 			location1 = closest_points[island_index][0];
 			location2 = closest_points[0][island_index];
@@ -157,28 +162,28 @@ void DungeonGenerator::_find_closest_island_locations(
 }
 
 void DungeonGenerator::_connect_locations(const Vector2i &location1, const Vector2i &location2, Matrix<bool> &pangea) {
-	int min_x = location1.x < location2.x ? location1.x : location2.x;
-	int max_x = location1.x > location2.x ? location1.x : location2.x;
-	int min_y = location1.y < location2.y ? location1.y : location2.y;
-	int max_y = location1.y > location2.y ? location1.y : location2.y;
+	uint8_t min_x = location1.x < location2.x ? location1.x : location2.x;
+	uint8_t max_x = location1.x > location2.x ? location1.x : location2.x;
+	uint8_t min_y = location1.y < location2.y ? location1.y : location2.y;
+	uint8_t max_y = location1.y > location2.y ? location1.y : location2.y;
 
-	for (int x = min_x; x <= max_x; x++) {
+	for (uint8_t x = min_x; x <= max_x; x++) {
 		pangea[x][location1.y] = true;
 	}
 
-	for (int y = min_y; y <= max_y; y++) {
+	for (uint8_t y = min_y; y <= max_y; y++) {
 		pangea[location2.x][y] = true;
 	}
 }
 
-void DungeonGenerator::_merge_island_distances(Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index) {
-	size_t island_count = closest_distances.size();
-	for (int island_index = 1; island_index < island_count; island_index++) {
+void DungeonGenerator::_merge_island_distances(Matrix<char16_t> &closest_distances, Matrix<Vector2i> &closest_points, const char16_t closest_island_index) {
+	char16_t island_count = closest_distances.size();
+	for (char16_t island_index = 1; island_index < island_count; island_index++) {
 		if (island_index == closest_island_index) {
 			continue;
 		}
 
-		unsigned int closest_to_current_distance = closest_distances[closest_island_index][island_index];
+		char16_t closest_to_current_distance = closest_distances[closest_island_index][island_index];
 		if (closest_to_current_distance < closest_distances[0][island_index]) {
 			closest_points[0][island_index] = closest_points[closest_island_index][island_index];
 			closest_points[island_index][0] = closest_points[island_index][closest_island_index];
@@ -187,7 +192,7 @@ void DungeonGenerator::_merge_island_distances(Matrix<unsigned int> &closest_dis
 		}
 	}
 
-	for (int island_index = 0; island_index < island_count; island_index++) {
+	for (char16_t island_index = 0; island_index < island_count; island_index++) {
 		if (island_index == closest_island_index) {
 			continue;
 		}
@@ -205,8 +210,8 @@ void DungeonGenerator::_spawn_ground(const Matrix<bool> &pangea) {
 	Vector2 top_left = Vector2(dungeon_width, dungeon_height) * tile_size / -2;
 	Node *dungeon_node = dynamic_cast<Node *>(ClassDB::instantiate("Node"));
 	dungeon_node->set_name("Dungeon");
-	for (int x = 0; x < dungeon_width; x++) {
-		for (int y = 0; y < dungeon_height; y++) {
+	for (uint8_t x = 0; x < dungeon_width; x++) {
+		for (uint8_t y = 0; y < dungeon_height; y++) {
 			if (!pangea[x][y]) {
 				continue;
 			}

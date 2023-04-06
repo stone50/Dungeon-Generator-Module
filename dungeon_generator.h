@@ -1,21 +1,21 @@
 #ifndef DUNGEON_GENERATOR_H
 #define DUNGEON_GENERATOR_H
 
-#include <unordered_set>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 #include "../../scene/main/node.h"
 
 class DungeonGenerator : public Node {
-	struct Vector2iHash {
-		inline std::size_t operator()(const Vector2i &v) const {
-			return ((size_t)v.x << sizeof(uint8_t)) + v.y;
-		}
-	};
-
-	typedef std::unordered_set<Vector2i, Vector2iHash> LocationSet;
-	typedef std::vector<LocationSet> LocationSetList;
 	template <class T>
-	using Matrix = std::vector<std::vector<T>>;
+	using VList = std::vector<T>;
+	template <class T>
+	using Matrix = VList<VList<T>>;
+	template <class T>
+	using Pointer = std::shared_ptr<T>;
+	template <class K, class V>
+	using Map = std::unordered_map<K, V>;
 
 	GDCLASS(DungeonGenerator, Node);
 
@@ -30,24 +30,22 @@ class DungeonGenerator : public Node {
 
 	Matrix<bool> _generate_ground();
 
-	int _find_island(const Vector2i &location, const LocationSetList &islands);
+	void _connect_borders(const Matrix<Vector2i> &borders, Matrix<bool> &pangea);
 
-	void _connect_borders(const LocationSetList &borders, Matrix<bool> &pangea);
+	void _find_island_distances(const Matrix<Vector2i> &borders, Matrix<char16_t> &closest_distances, Matrix<Vector2i> &closest_points);
 
-	void _find_island_distances(const LocationSetList &borders, Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points);
-
-	unsigned int _find_closest_locations(const LocationSet &island1, const LocationSet &island2, Vector2i &location1, Vector2i &location2);
+	char16_t _find_closest_locations(const VList<Vector2i> &island1, const VList<Vector2i> &island2, Vector2i &location1, Vector2i &location2);
 
 	void _find_closest_island_locations(
-			const Matrix<unsigned int> &closest_distances,
+			const Matrix<char16_t> &closest_distances,
 			const Matrix<Vector2i> &closest_points,
 			Vector2i &location1,
 			Vector2i &location2,
-			int &closest_island_index);
+			char16_t &closest_island_index);
 
 	void _connect_locations(const Vector2i &location1, const Vector2i &location2, Matrix<bool> &pangea);
 
-	void _merge_island_distances(Matrix<unsigned int> &closest_distances, Matrix<Vector2i> &closest_points, const int closest_island_index);
+	void _merge_island_distances(Matrix<char16_t> &closest_distances, Matrix<Vector2i> &closest_points, const char16_t closest_island_index);
 
 	void _spawn_ground(const Matrix<bool> &pangea);
 
